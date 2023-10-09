@@ -1,51 +1,85 @@
-pipeline {
-    agent any
-
+pipeline{
+    
+    agent any 
+    
     stages {
-        stage('Hello') {
-            steps {
-                echo 'Hello World'
+        
+        stage('Git Checkout'){
+            
+            steps{
+                
+                script{
+                    
+                    git branch: 'main', url: 'https://github.com/imdad789/demo-counter-app.git'
+                }
             }
         }
-        stage('code chekout') {
-            steps {
-                git branch: 'main', url: 'https://github.com/imdad789/demo-counter-app.git'
+        stage('Maven build'){
+            
+            steps{
+                
+                script{
+                    
+                    sh 'mvn clean install'
+                }
             }
         }
-        stage('code build') {
-            steps {
-                sh 'mvn clean package'
+        stage('Static code analysis'){
+            
+            steps{
+                
+                script{
+                    
+                    withSonarQubeEnv(credentialsId: 'sonar-api') {
+                        
+                        sh 'mvn clean package sonar:sonar'
+                    }
+                  }
             }
         }
-        stage('Upload Jar file to Nexus')  {
-            steps {
-                script {
-                    def readPomVersion = readMavenPom file: 'pom.xml'
-                    def nexusRepo = readPomVersion.version.endsWith("snapshot") ? 'demoapp-snapshot' : 'demoapp-release'
+        stage('Nexus upload Repo'){
+            
+            steps{
+                
+                script{
+                   def readPomVersion = readMavenPom file: 'pom.xml'
+                   def nexusRepo = readPomVersion.version.endsWith("SNAPSHOT") ? 'demoapp-snapshot' : 'demoapp-release'
                     
                     nexusArtifactUploader artifacts: 
                     [
-                        [artifactId: 'springboot', 
-                        classifier: '', file: 'target/Uber.jar', 
-                        type: 'jar'
+                        [
+                            artifactId: 'springboot', 
+                            classifier: '', file: 'target/Uber.jar', 
+                            type: 'jar'
                         ]
                     ], 
                     credentialsId: 'nexus', 
                     groupId: 'com.example', 
-                    nexusUrl: '3.111.34.35:8081', 
+                    nexusUrl: '52.66.158.37:8081', 
                     nexusVersion: 'nexus3', 
                     protocol: 'http', 
                     repository: nexusRepo, 
                     version: "${readPomVersion.version}"
-             }
+                }
             }
         }
-        stage('Build Image') {
+         stage('Build Image') {
             steps {
                 script {
                     sh 'docker image build -t ${JOB_NAME}:v1.${BUILD_ID} .'
                     sh 'docker image tag ${JOB_NAME}:v1.${BUILD_ID} imdad789/${JOB_NAME}:v1.${BUILD_ID}'
-                //    sh 'docker image tag ${JOB_NAME}:v1.${BUILD_ID}} imdad789/${JOB_NAME}:latest'
+                    sh 'docker image tag ${JOB_NAME}:v1.${BUILD_ID} imdad789/${JOB_NAME}:latest'
+                }
+            }
+        }
+        stage('Push Docker Image to Hub') {
+            steps {
+                script {
+                  withCredentials([string(credentialsId: 'dockerp', variable: 'docker_pass')]) {
+                    sh 'docker login -u imdad789 -p ${docker_pass}'
+                    sh 'docker image push imdad789/${JOB_NAME}:latest'
+                    sh 'docker image push imdad789/${JOB_NAME}:v1.${BUILD_ID}'
+                  }
                 }
             }
         }
